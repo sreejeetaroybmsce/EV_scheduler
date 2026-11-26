@@ -1,0 +1,737 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>V2G Charging Station</title>
+<style>
+  :root {
+    --ground:#e8ecea; --paper:#fff; --ink:#13232c; --muted:#5a6b73; --rule:#cfd8d6;
+    --charge:#0b8457; --feed:#cc2b2b; --peak:#b86e00; --fault:#6d3fa0;
+    --text:"Avenir Next",Avenir,"Segoe UI",system-ui,sans-serif;
+    --figures:"DIN Alternate",Bahnschrift,"Avenir Next",system-ui,sans-serif;
+  }
+  * { box-sizing:border-box; margin:0; padding:0; }
+  body { background:var(--ground); color:var(--ink); font:15px/1.45 var(--text); padding:24px 20px 48px; }
+  main, header { max-width:1120px; margin:0 auto; }
+  h1 { font-size:21px; font-weight:600; margin-right:auto; }
+  h2 { font-size:17px; font-weight:600; }
+  header { display:flex; flex-wrap:wrap; gap:10px; align-items:center; margin-bottom:18px; }
+  #status { color:var(--muted); margin-right:8px; }
+  button { font:600 14px var(--text); padding:9px 16px; border-radius:6px; border:1.5px solid var(--ink); background:transparent; color:var(--ink); cursor:pointer; }
+  #connect { background:var(--ink); color:#fff; }
+  button:focus-visible, summary:focus-visible { outline:3px solid var(--ink); outline-offset:2px; }
+
+  .readings { display:grid; grid-template-columns:repeat(4,1fr); background:var(--ink); color:#fff; border-radius:10px 10px 0 0; }
+  .readings > div { padding:16px 20px; border-left:1px solid #34464f; }
+  .readings > div:first-child { border:0; }
+  .readings b { display:block; font:700 40px/1.1 var(--figures); font-variant-numeric:tabular-nums; }
+  .readings span { color:#a9bcc4; font-size:14px; }
+
+  .station { background:var(--paper); border-radius:0 0 10px 10px; padding:18px 20px 24px; }
+  .grid-head { display:flex; justify-content:space-between; flex-wrap:wrap; gap:8px; align-items:center; margin-bottom:10px; }
+  .lamps { display:flex; gap:20px; }
+  .lamp::before { content:""; display:inline-block; width:14px; height:14px; border-radius:50%; background:var(--rule); margin-right:7px; vertical-align:-2px; }
+  #ledG.on::before { background:var(--charge); box-shadow:0 0 0 4px #0b845733; }
+  #ledR.on::before { background:var(--feed); box-shadow:0 0 0 4px #cc2b2b33; }
+  .bus { height:8px; background:var(--ink); border-radius:4px; }
+  #evs { display:grid; grid-template-columns:repeat(3,1fr); column-gap:28px; }
+
+  .bay { --tone:var(--muted); display:flex; flex-direction:column; align-items:stretch; }
+  .bay.CHARGE { --tone:var(--charge); } .bay.DISCHARGE { --tone:var(--feed); }
+  .bay.away { --tone:var(--fault); }
+  .cable { height:64px; width:8px; margin:0 auto; background:var(--rule); position:relative; }
+  .CHARGE .cable, .DISCHARGE .cable { background:repeating-linear-gradient(to bottom,var(--tone) 0 10px,#0000 10px 18px); animation:down .6s linear infinite; }
+  .DISCHARGE .cable { animation-direction:reverse; }
+  @keyframes down { to { background-position:0 18px; } }
+  .away .cable { height:34px; margin-bottom:30px; background:var(--ink); }
+  .away .cable::after { content:""; position:absolute; left:-7px; bottom:-14px; width:22px; height:16px; background:var(--ink); border-radius:3px 3px 9px 9px; }
+  .car { border:2px solid var(--tone); border-radius:10px; padding:14px 16px 16px; flex:1; }
+  .away .car { border-style:dashed; }
+  .gone .car { background:var(--ground); border-color:var(--rule); }
+  .title { display:flex; justify-content:space-between; gap:8px; align-items:baseline; }
+  .plug { font-weight:600; font-size:14px; color:var(--charge); }
+  .away .plug { color:var(--fault); } .gone .plug { color:var(--muted); }
+  .soc { font:700 54px/1.15 var(--figures); font-variant-numeric:tabular-nums; margin-top:6px; }
+  .mode { font-weight:600; color:var(--tone); font-size:17px; }
+  .battery { position:relative; height:22px; margin:14px 7px 24px 0; border:2px solid var(--ink); border-radius:4px; padding:2px; }
+  .battery::after { content:""; position:absolute; right:-7px; top:4px; width:5px; height:10px; background:var(--ink); }
+  .fill { height:100%; width:0; background:var(--tone); transition:width .4s; }
+  .mark { position:absolute; top:-6px; bottom:-6px; width:2px; background:var(--ink); }
+  .mark.reserve { background:var(--peak); }
+  .mark i { position:absolute; top:100%; transform:translateX(-50%); font-style:normal; font-size:12px; color:var(--muted); white-space:nowrap; }
+  .why { min-height:44px; }
+  .info { color:var(--muted); font-size:13px; margin-top:6px; }
+  .why { font-size:16px; }
+  .last { border-top:1px solid var(--rule); margin-top:10px; padding-top:8px; font-size:13px; color:var(--muted); }
+  .in { color:var(--charge); } .out { color:var(--fault); }
+  .empty { grid-column:1/-1; text-align:center; color:var(--muted); padding:48px 0 24px; }
+
+  section.panel { background:var(--paper); border-radius:10px; padding:18px 20px; margin-top:16px; }
+  .scroll { overflow-x:auto; }
+  .night { display:grid; grid-template-columns:40px repeat(12,1fr); gap:3px; min-width:660px; margin-top:12px; font:13px var(--figures); text-align:center; }
+  .night > * { min-height:28px; display:flex; align-items:center; justify-content:center; }
+  .night .hour { color:var(--muted); }
+  .night .rate { border-bottom:4px solid var(--charge); }
+  .night .rate.peak { border-color:var(--peak); height:44px; }
+  .night .rate:not(.peak) { height:24px; align-self:end; }
+  .night .cell { background:var(--ground); border-radius:3px; }
+  .night .cell.CHARGE { background:var(--charge); color:#fff; }
+  .night .cell.DISCHARGE { background:var(--feed); color:#fff; }
+  .night .cell.away { background:#fff; border:1.5px dashed var(--fault); }
+  .night .cell.gone { background:repeating-linear-gradient(45deg,var(--rule) 0 3px,#0000 3px 8px); }
+  .how { max-width:80ch; margin-bottom:14px; color:var(--muted); }
+  .story { background:var(--paper); border:2px solid var(--ink); border-radius:10px; padding:16px 20px; margin-bottom:14px; min-height:126px; }
+  .story h2 { font-size:24px; }
+  .story p { font-size:17px; margin-top:4px; }
+  .story.is-morning { background:#e3f3ea; border-color:var(--charge); }
+  .story.is-arrive { background:#fdf1dc; border-color:var(--peak); }
+  .timer { height:4px; margin-top:12px; background:var(--rule); }
+  .timer i { display:block; height:100%; width:0; background:var(--ink); }
+  .level { display:flex; align-items:baseline; gap:12px; flex-wrap:wrap; }
+  .delta { font:700 18px var(--figures); color:var(--tone); }
+  .night .now { outline:2.5px solid var(--ink); outline-offset:1px; }
+  .key { color:var(--muted); font-size:13px; margin-top:10px; }
+  table { width:100%; border-collapse:collapse; margin-top:8px; }
+  th, td { text-align:left; padding:7px 10px 7px 0; border-bottom:1px solid var(--rule); font-weight:400; }
+  th { color:var(--muted); font-size:13px; }
+  #saving { margin-top:10px; font-size:17px; }
+  summary { cursor:pointer; font-weight:600; }
+  #serial { font:12px/1.6 ui-monospace,Menlo,monospace; white-space:pre-wrap; margin-top:12px; }
+  [hidden] { display:none !important; }
+  @media (max-width:760px) {
+    .readings { grid-template-columns:1fr 1fr; }
+    #evs { grid-template-columns:1fr; row-gap:4px; }
+    .cable { height:30px; } .away .cable { height:16px; margin-bottom:14px; }
+    .bus { display:none; }
+  }
+  @media (prefers-reduced-motion:reduce) { * { animation:none !important; transition:none !important; } }
+</style>
+</head>
+<body>
+<header>
+  <h1>V2G Charging Station</h1>
+  <span id="status" role="status">Not connected</span>
+  <button id="demo">Play recorded demo</button>
+  <button id="connect">Connect board</button>
+</header>
+<main>
+  <p class="how">Electricity is expensive from 18:00 to 23:00 and cheap after that. Cars wait for the cheap hours when they can, and sell spare battery back while it is expensive. Only two cars can charge at once.</p>
+  <div class="story" aria-live="polite"><h2 id="headline">Waiting for the station</h2><p id="story">Connect the NodeMCU or play the recorded demo.</p><div class="timer"><i id="timer"></i></div></div>
+  <div class="readings">
+    <div><b id="clock">--:--</b><span id="slot">Time</span></div>
+    <div><b id="price">₹--</b><span id="peak">Price per unit</span></div>
+    <div><b id="chargers">-/2</b><span>Chargers in use (limit 2)</span></div>
+    <div><b id="smart">₹--</b><span>Saved tonight</span></div>
+  </div>
+  <div class="station">
+    <div class="grid-head"><h2>Grid supply</h2><div class="lamps"><span class="lamp" id="ledG">Green LED, charging</span><span class="lamp" id="ledR">Red LED, feeding grid</span></div></div>
+    <div class="bus"></div>
+    <div id="evs"></div>
+  </div>
+
+  <section class="panel">
+    <h2>Tonight, hour by hour</h2>
+    <div class="scroll"><div class="night" id="night"></div></div>
+    <p class="key">Green is charging, red is feeding the grid, grey is waiting, a dashed box is unplugged and stripes mean the car has left. Orange hours are expensive. + means charging, − means selling.</p>
+  </section>
+
+  <section class="panel" id="summary" hidden>
+    <h2>Last completed night</h2>
+    <table><thead><tr><th>Vehicle</th><th>Battery</th><th>Target</th><th>Result</th><th>Times switched</th></tr></thead><tbody id="results"></tbody></table>
+    <p id="saving"></p>
+  </section>
+
+  <section class="panel"><details><summary>Serial monitor</summary><div id="serial"></div></details></section>
+</main>
+
+<script>
+const $ = id => document.getElementById(id);
+const money = v => (v < 0 ? '-₹' : '₹') + Math.abs(v).toFixed(0);
+const clock = h => String(h).padStart(2, '0') + ':00';
+const slotTime = i => clock((18 + i) % 24);
+let previous = null;
+const joining = new Set();   // plugged in, waiting for the next slot
+
+function el(tag, cls, text) {
+  const node = document.createElement(tag);
+  if (cls) node.className = cls;
+  if (text !== undefined) node.textContent = text;
+  return node;
+}
+
+function buildNight() {
+  const night = $('night');
+  night.textContent = '';
+  night.append(el('span'));
+  for (let i = 0; i < 12; i++) night.append(el('span', 'hour', slotTime(i)));
+  night.append(el('span', 'hour', '₹'));
+  for (let i = 0; i < 12; i++) night.append(el('span', 'rate' + (i < 5 ? ' peak' : ''), i < 5 ? '10' : '4'));
+  for (let v = 0; v < 3; v++) {
+    night.append(el('span', '', 'V' + (v + 1)));
+    for (let i = 0; i < 12; i++) {
+      const cell = el('span', 'cell');
+      cell.id = `cell${v}-${i}`;
+      night.append(cell);
+    }
+  }
+}
+
+function bay(i, name) {
+  let node = $('ev' + i);
+  if (node) return node;
+  node = el('div');
+  node.id = 'ev' + i;
+  node.innerHTML = `<div class="cable"></div>
+    <div class="car">
+      <div class="title"><h2></h2><span class="plug"></span></div>
+      <div class="level"><span class="soc"></span><span class="delta"></span></div>
+      <div class="mode"></div>
+      <div class="battery"><div class="fill"></div><div class="mark reserve"><i>minimum</i></div><div class="mark target"><i>goal</i></div></div>
+      <p class="why"></p>
+      <p class="info"></p>
+      <p class="last">No plug changes yet</p>
+    </div>`;
+  node.querySelector('h2').textContent = 'Vehicle ' + name;
+  $('evs').querySelector('.empty')?.remove();
+  $('evs').append(node);
+  return node;
+}
+
+const WORDS = { IDLE: 'Waiting', CHARGE: 'Charging', DISCHARGE: 'Selling to grid' };
+
+// Plain-language explanation of what the scheduler is doing with this car.
+function reason(s, e, i) {
+  if (s.phase === 'morning') return e.soc >= e.target ? 'Ready to drive. Goal reached.' : 'Goal not reached.';
+  if (!e.plugged) return 'Not connected, so nothing happens to its battery.';
+  if (s.phase === 'arrive') return `Just arrived with ${e.soc}% battery.`;
+  if (s.slot >= e.depart) return `Drove away at ${slotTime(e.depart)}.`;
+  if (joining.has(i)) return 'Just plugged in. Starts at the next hour.';
+  if (e.mode === 'DISCHARGE') return 'Has spare battery, so it sells some while the price is high.';
+  if (e.note === 'urgent') return `Must charge now, or it will not reach ${e.target}% in time.`;
+  if (e.mode === 'CHARGE') return 'Charging now because power is cheap.';
+  if (e.note.startsWith('deferred')) return 'Wants to charge, but both chargers are busy.';
+  if (e.soc >= e.target) return 'Already has enough battery.';
+  return s.peak ? 'Waiting for cheap power at 23:00.' : 'Waiting for its turn.';
+}
+
+const list = names => names.length > 1 ? names.slice(0, -1).join(', ') + ' and ' + names.at(-1) : names[0];
+
+// The big sentence at the top: what is happening right now.
+function tellStory(s) {
+  const saved = money(s.peakOnly - s.smart);
+  let title, text;
+  if (s.phase === 'arrive') {
+    title = 'Evening, 18:00: three cars arrive';
+    text = 'These are their starting batteries. Scheduling begins in a moment.';
+  } else if (s.phase === 'morning') {
+    const met = s.ev.filter(e => e.soc >= e.target).length;
+    title = `Morning: ${met} of 3 cars reached their goal, ${saved} saved`;
+    text = 'Next, a new evening starts. The cars come back with low batteries again, so the numbers will drop.';
+  } else {
+    const names = mode => s.ev.filter(e => e.mode === mode).map(e => e.name);
+    const charging = names('CHARGE'), selling = names('DISCHARGE'), parts = [];
+    if (charging.length) parts.push(`${list(charging)} ${charging.length > 1 ? 'are' : 'is'} charging.`);
+    if (selling.length) parts.push(`${list(selling)} ${selling.length > 1 ? 'are' : 'is'} selling power to the grid.`);
+    if (!parts.length) parts.push('No car is using power right now.');
+    s.ev.filter(e => e.note.startsWith('deferred')).forEach(e => parts.push(`${e.name} has to wait for a free charger.`));
+    title = `${clock(s.hour)}: electricity is ${s.peak ? 'expensive' : 'cheap'}`;
+    text = parts.join(' ');
+  }
+  $('headline').textContent = title;
+  $('story').textContent = text;
+  document.querySelector('.story').className = 'story is-' + s.phase;
+}
+
+// Bar that shows how long until the next step.
+function startTimer(ms) {
+  $('timer').getAnimations().forEach(a => a.cancel());
+  if (ms) $('timer').animate([{ width: '0%' }, { width: '100%' }], { duration: ms, fill: 'forwards' });
+}
+
+function render(s) {
+  const running = s.phase === 'night';
+  tellStory(s);
+  $('clock').textContent = s.phase === 'morning' ? '06:00' : clock(s.hour);
+  $('slot').textContent = running ? `Hour ${s.slot + 1} of 12` : s.phase === 'arrive' ? 'Cars arriving' : 'Night over';
+  $('price').textContent = money(s.price);
+  $('peak').textContent = s.peak ? 'per unit, expensive' : 'per unit, cheap';
+  $('chargers').textContent = s.ev.filter(e => e.mode === 'CHARGE').length + ' of 2';
+  $('ledG').classList.toggle('on', !!s.green);
+  $('ledR').classList.toggle('on', !!s.red);
+  $('smart').textContent = money(s.peakOnly - s.smart);
+
+  document.querySelectorAll('.night .now').forEach(n => n.classList.remove('now'));
+  s.ev.forEach((e, i) => {
+    const node = bay(i, e.name), q = c => node.querySelector('.' + c);
+    const gone = running && s.slot >= e.depart;
+    const state = gone ? 'gone' : !e.plugged ? 'away' : e.mode;
+    node.className = 'bay ' + state;
+    q('plug').textContent = !e.plugged ? 'Unplugged' : gone ? 'Drove away' : 'Plugged in';
+    q('soc').textContent = e.soc + '%';
+    q('mode').textContent = gone ? 'Gone' : !e.plugged ? 'Not connected' : s.phase === 'arrive' ? 'Arrived'
+      : s.phase === 'morning' ? 'Finished' : WORDS[e.mode];
+    q('delta').textContent = e.change ? `${e.change > 0 ? '+' : '−'}${Math.abs(e.change)}% this hour` : '';
+    q('fill').style.width = e.soc + '%';
+    q('target').style.left = e.target + '%';
+    q('reserve').style.left = e.reserve + '%';
+    q('why').textContent = reason(s, e, i);
+    q('info').textContent = `Goal: ${e.target}% ${e.depart >= 12 ? 'by morning' : 'by ' + slotTime(e.depart)}. `
+      + `Never sells below ${e.reserve}%.`;
+
+    const cell = $(`cell${i}-${s.slot}`);
+    if (cell && running) {
+      cell.textContent = state === 'CHARGE' ? '+' : state === 'DISCHARGE' ? '−' : '';
+      cell.className = `cell now ${state}`;
+      cell.title = `${e.name} at ${clock(s.hour)}: ${state === 'away' ? 'unplugged' : state === 'gone' ? 'gone' : q('mode').textContent}, ${e.soc}%`;
+    }
+  });
+}
+
+function handleState(s) {
+  if (s.type === 'slot') joining.clear();
+  if (s.type === 'arrive') { joining.clear(); buildNight(); }
+  const changed = [];
+  if (s.type === 'plug' || s.type === 'unplug') {
+    // Compare with the last snapshot to find which vehicle changed.
+    s.ev.forEach((e, i) => {
+      if (previous ? previous.ev[i].plugged === e.plugged : !!e.plugged !== (s.type === 'plug')) return;
+      changed.push(i);
+      e.plugged ? joining.add(i) : joining.delete(i);
+    });
+  }
+  render(s);
+  if (s.type !== 'plug' && s.type !== 'unplug') startTimer(s.wait);
+  changed.forEach(i => {
+    const e = s.ev[i], last = $('ev' + i).querySelector('.last');
+    last.textContent = `${e.plugged ? 'Plugged in' : 'Unplugged'} at ${clock(s.hour)} with ${e.soc}%`;
+    last.className = 'last ' + (e.plugged ? 'in' : 'out');
+  });
+  if (s.type === 'summary') {
+    $('summary').hidden = false;
+    $('results').textContent = '';
+    s.ev.forEach(e => {
+      const row = el('tr');
+      const met = e.soc >= e.target;
+      [e.name, e.soc + '%', e.target + '%'].forEach(t => row.append(el('td', '', t)));
+      row.append(el('td', met ? 'in' : 'out', met ? 'Target met' : 'Below target'), el('td', '', e.changes));
+      $('results').append(row);
+    });
+    $('saving').textContent = `Smart charging cost ${money(s.smart)}. The same charging at the expensive rate would cost ${money(s.peakOnly)}, so ${money(s.peakOnly - s.smart)} was saved.`;
+  }
+  previous = s;
+}
+
+// Every serial line, live or recorded, comes through here.
+function handleLine(line) {
+  if (line.startsWith('@')) {
+    try { handleState(JSON.parse(line.slice(1))); }
+    catch (err) { console.warn('Skipped damaged line', err); }
+    return;
+  }
+  // The firmware's clear-screen code starts a fresh screen: replace, don't append.
+  if (line.includes('\x1b[2J')) $('serial').textContent = '';
+  $('serial').append(line.replace(/\x1b\[[0-9;]*[A-Za-z]/g, '') + '\n');
+}
+
+function reset() {
+  previous = null;
+  joining.clear();
+  buildNight();
+  $('evs').innerHTML = '<p class="empty">Connect the NodeMCU, or play the recorded demo, to see the three vehicles.</p>';
+  $('serial').textContent = '';
+  $('summary').hidden = true;
+  $('headline').textContent = 'Waiting for the station';
+  $('story').textContent = 'Connect the NodeMCU or play the recorded demo.';
+  document.querySelector('.story').className = 'story';
+  startTimer(0);
+}
+reset();
+
+let port, reader, demoTimer, closing = false;
+
+function stopDemo() { clearTimeout(demoTimer); demoTimer = null; $('demo').textContent = 'Play recorded demo'; }
+
+async function connect() {
+  if (port) { closing = true; await reader?.cancel(); return; }
+  if (!('serial' in navigator)) { $('status').textContent = 'Needs desktop Chrome or Edge'; return; }
+  try {
+    const chosen = await navigator.serial.requestPort();
+    await chosen.open({ baudRate: 115200 });
+    port = chosen;
+  } catch (err) {
+    if (port) await port.close();
+    port = null;
+    $('status').textContent = 'Could not connect: ' + err.message;
+    return;
+  }
+  stopDemo(); reset();
+  closing = false;
+  $('status').textContent = 'Live from NodeMCU';
+  $('connect').textContent = 'Disconnect';
+  // Some USB bridges reject this; it is not fatal.
+  await port.setSignals({ dataTerminalReady: false, requestToSend: false }).catch(console.warn);
+  let error = null;
+  // Framing / overrun errors (common when the board resets) leave the port
+  // readable, so take a fresh reader and carry on.
+  while (port.readable && !closing) {
+    const decoder = new TextDecoder();
+    let buffer = '';
+    reader = port.readable.getReader();
+    try {
+      while (!closing) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop();
+        lines.forEach(l => handleLine(l.replace(/\r$/, '')));
+      }
+      error = null;
+    } catch (err) { error = err; }
+    reader.releaseLock();
+  }
+  await port.close().catch(() => {});
+  port = reader = null;
+  $('status').textContent = error ? 'Connection lost: ' + error.message : 'Not connected';
+  $('connect').textContent = 'Connect board';
+}
+
+// Output captured from the firmware running in a computer simulation.
+const DEMO = `
+@{"type":"arrive","phase":"arrive","wait":6000,"slot":0,"hour":18,"peak":1,"price":10.0,"smart":0.0,"peakOnly":0.0,"green":0,"red":0,"ev":[{"name":"V1","plugged":1,"mode":"IDLE","soc":90,"change":0,"target":80,"reserve":60,"depart":12,"changes":0,"note":""},{"name":"V2","plugged":1,"mode":"IDLE","soc":20,"change":0,"target":90,"reserve":60,"depart":7,"changes":0,"note":""},{"name":"V3","plugged":1,"mode":"IDLE","soc":30,"change":0,"target":80,"reserve":60,"depart":12,"changes":0,"note":""}]}
+\x1b[2J\x1b[3J\x1b[H===== EV CHARGING STATION =====
+18:00  Cars have arrived. These are their starting batteries.
+Chargers in use 0 of 2   Green LED OFF   Red LED OFF
+
+Car  Plug       Doing     Battery  This hour  Goal
+V1   PLUGGED    WAITING      90%        +0%   80%
+V2   PLUGGED    WAITING      20%        +0%   90%
+V3   PLUGGED    WAITING      30%        +0%   80%
+
+Last plug event:
+  V1  none yet
+  V2  none yet
+  V3  none yet
+@{"type":"slot","phase":"night","wait":5000,"slot":0,"hour":18,"peak":1,"price":10.0,"smart":0.0,"peakOnly":10.0,"green":1,"red":1,"ev":[{"name":"V1","plugged":1,"mode":"DISCHARGE","soc":82,"change":-8,"target":80,"reserve":60,"depart":12,"changes":1,"note":""},{"name":"V2","plugged":1,"mode":"CHARGE","soc":30,"change":10,"target":90,"reserve":60,"depart":7,"changes":1,"note":"urgent"},{"name":"V3","plugged":1,"mode":"IDLE","soc":30,"change":0,"target":80,"reserve":60,"depart":12,"changes":0,"note":""}]}
+\x1b[2J\x1b[3J\x1b[H===== EV CHARGING STATION =====
+18:00  Electricity is EXPENSIVE (Rs 10 per unit)
+Chargers in use 1 of 2   Green LED ON   Red LED ON
+
+Car  Plug       Doing     Battery  This hour  Goal
+V1   PLUGGED    SELLING      82%        -8%   80%
+V2   PLUGGED    CHARGING     30%       +10%   90%
+V3   PLUGGED    WAITING      30%        +0%   80%
+
+Saved so far: Rs 10
+
+Last plug event:
+  V1  none yet
+  V2  none yet
+  V3  none yet
+@{"type":"slot","phase":"night","wait":5000,"slot":1,"hour":19,"peak":1,"price":10.0,"smart":0.0,"peakOnly":20.0,"green":1,"red":1,"ev":[{"name":"V1","plugged":1,"mode":"DISCHARGE","soc":74,"change":-8,"target":80,"reserve":60,"depart":12,"changes":1,"note":""},{"name":"V2","plugged":1,"mode":"CHARGE","soc":40,"change":10,"target":90,"reserve":60,"depart":7,"changes":1,"note":"urgent"},{"name":"V3","plugged":1,"mode":"IDLE","soc":30,"change":0,"target":80,"reserve":60,"depart":12,"changes":0,"note":""}]}
+\x1b[2J\x1b[3J\x1b[H===== EV CHARGING STATION =====
+19:00  Electricity is EXPENSIVE (Rs 10 per unit)
+Chargers in use 1 of 2   Green LED ON   Red LED ON
+
+Car  Plug       Doing     Battery  This hour  Goal
+V1   PLUGGED    SELLING      74%        -8%   80%
+V2   PLUGGED    CHARGING     40%       +10%   90%
+V3   PLUGGED    WAITING      30%        +0%   80%
+
+Saved so far: Rs 20
+
+Last plug event:
+  V1  none yet
+  V2  none yet
+  V3  none yet
+@{"type":"unplug","phase":"night","wait":5000,"slot":1,"hour":19,"peak":1,"price":10.0,"smart":0.0,"peakOnly":20.0,"green":1,"red":1,"ev":[{"name":"V1","plugged":1,"mode":"DISCHARGE","soc":74,"change":-8,"target":80,"reserve":60,"depart":12,"changes":1,"note":""},{"name":"V2","plugged":1,"mode":"CHARGE","soc":40,"change":10,"target":90,"reserve":60,"depart":7,"changes":1,"note":"urgent"},{"name":"V3","plugged":0,"mode":"IDLE","soc":30,"change":0,"target":80,"reserve":60,"depart":12,"changes":0,"note":"unplugged"}]}
+\x1b[2J\x1b[3J\x1b[H===== EV CHARGING STATION =====
+19:00  Electricity is EXPENSIVE (Rs 10 per unit)
+Chargers in use 1 of 2   Green LED ON   Red LED ON
+
+Car  Plug       Doing     Battery  This hour  Goal
+V1   PLUGGED    SELLING      74%        -8%   80%
+V2   PLUGGED    CHARGING     40%       +10%   90%
+V3   UNPLUGGED  WAITING      30%        +0%   80%
+
+Saved so far: Rs 20
+
+Last plug event:
+  V1  none yet
+  V2  none yet
+  V3  UNPLUGGED at 19:00 - now IDLE
+@{"type":"slot","phase":"night","wait":5000,"slot":2,"hour":20,"peak":1,"price":10.0,"smart":0.0,"peakOnly":30.0,"green":1,"red":1,"ev":[{"name":"V1","plugged":1,"mode":"DISCHARGE","soc":66,"change":-8,"target":80,"reserve":60,"depart":12,"changes":1,"note":""},{"name":"V2","plugged":1,"mode":"CHARGE","soc":50,"change":10,"target":90,"reserve":60,"depart":7,"changes":1,"note":"urgent"},{"name":"V3","plugged":0,"mode":"IDLE","soc":30,"change":0,"target":80,"reserve":60,"depart":12,"changes":0,"note":"unplugged"}]}
+\x1b[2J\x1b[3J\x1b[H===== EV CHARGING STATION =====
+20:00  Electricity is EXPENSIVE (Rs 10 per unit)
+Chargers in use 1 of 2   Green LED ON   Red LED ON
+
+Car  Plug       Doing     Battery  This hour  Goal
+V1   PLUGGED    SELLING      66%        -8%   80%
+V2   PLUGGED    CHARGING     50%       +10%   90%
+V3   UNPLUGGED  WAITING      30%        +0%   80%
+
+Saved so far: Rs 30
+
+Last plug event:
+  V1  none yet
+  V2  none yet
+  V3  UNPLUGGED at 19:00 - now IDLE
+@{"type":"plug","phase":"night","wait":5000,"slot":2,"hour":20,"peak":1,"price":10.0,"smart":0.0,"peakOnly":30.0,"green":1,"red":1,"ev":[{"name":"V1","plugged":1,"mode":"DISCHARGE","soc":66,"change":-8,"target":80,"reserve":60,"depart":12,"changes":1,"note":""},{"name":"V2","plugged":1,"mode":"CHARGE","soc":50,"change":10,"target":90,"reserve":60,"depart":7,"changes":1,"note":"urgent"},{"name":"V3","plugged":1,"mode":"IDLE","soc":30,"change":0,"target":80,"reserve":60,"depart":12,"changes":0,"note":""}]}
+\x1b[2J\x1b[3J\x1b[H===== EV CHARGING STATION =====
+20:00  Electricity is EXPENSIVE (Rs 10 per unit)
+Chargers in use 1 of 2   Green LED ON   Red LED ON
+
+Car  Plug       Doing     Battery  This hour  Goal
+V1   PLUGGED    SELLING      66%        -8%   80%
+V2   PLUGGED    CHARGING     50%       +10%   90%
+V3   PLUGGED    WAITING      30%        +0%   80%
+
+Saved so far: Rs 30
+
+Last plug event:
+  V1  none yet
+  V2  none yet
+  V3  PLUGGED IN at 20:00 - joins next slot
+@{"type":"slot","phase":"night","wait":5000,"slot":3,"hour":21,"peak":1,"price":10.0,"smart":0.0,"peakOnly":40.0,"green":1,"red":1,"ev":[{"name":"V1","plugged":1,"mode":"DISCHARGE","soc":60,"change":-6,"target":80,"reserve":60,"depart":12,"changes":1,"note":""},{"name":"V2","plugged":1,"mode":"CHARGE","soc":60,"change":10,"target":90,"reserve":60,"depart":7,"changes":1,"note":"urgent"},{"name":"V3","plugged":1,"mode":"IDLE","soc":30,"change":0,"target":80,"reserve":60,"depart":12,"changes":0,"note":""}]}
+\x1b[2J\x1b[3J\x1b[H===== EV CHARGING STATION =====
+21:00  Electricity is EXPENSIVE (Rs 10 per unit)
+Chargers in use 1 of 2   Green LED ON   Red LED ON
+
+Car  Plug       Doing     Battery  This hour  Goal
+V1   PLUGGED    SELLING      60%        -6%   80%
+V2   PLUGGED    CHARGING     60%       +10%   90%
+V3   PLUGGED    WAITING      30%        +0%   80%
+
+Saved so far: Rs 40
+
+Last plug event:
+  V1  none yet
+  V2  none yet
+  V3  PLUGGED IN at 20:00 - joins next slot
+@{"type":"unplug","phase":"night","wait":5000,"slot":3,"hour":21,"peak":1,"price":10.0,"smart":0.0,"peakOnly":40.0,"green":0,"red":1,"ev":[{"name":"V1","plugged":1,"mode":"DISCHARGE","soc":60,"change":-6,"target":80,"reserve":60,"depart":12,"changes":1,"note":""},{"name":"V2","plugged":0,"mode":"IDLE","soc":60,"change":10,"target":90,"reserve":60,"depart":7,"changes":2,"note":"unplugged"},{"name":"V3","plugged":1,"mode":"IDLE","soc":30,"change":0,"target":80,"reserve":60,"depart":12,"changes":0,"note":""}]}
+\x1b[2J\x1b[3J\x1b[H===== EV CHARGING STATION =====
+21:00  Electricity is EXPENSIVE (Rs 10 per unit)
+Chargers in use 0 of 2   Green LED OFF   Red LED ON
+
+Car  Plug       Doing     Battery  This hour  Goal
+V1   PLUGGED    SELLING      60%        -6%   80%
+V2   UNPLUGGED  WAITING      60%       +10%   90%
+V3   PLUGGED    WAITING      30%        +0%   80%
+
+Saved so far: Rs 40
+
+Last plug event:
+  V1  none yet
+  V2  UNPLUGGED at 21:00 - now IDLE
+  V3  PLUGGED IN at 20:00 - joins next slot
+@{"type":"plug","phase":"night","wait":5000,"slot":3,"hour":21,"peak":1,"price":10.0,"smart":0.0,"peakOnly":40.0,"green":0,"red":1,"ev":[{"name":"V1","plugged":1,"mode":"DISCHARGE","soc":60,"change":-6,"target":80,"reserve":60,"depart":12,"changes":1,"note":""},{"name":"V2","plugged":1,"mode":"IDLE","soc":60,"change":10,"target":90,"reserve":60,"depart":7,"changes":2,"note":""},{"name":"V3","plugged":1,"mode":"IDLE","soc":30,"change":0,"target":80,"reserve":60,"depart":12,"changes":0,"note":""}]}
+\x1b[2J\x1b[3J\x1b[H===== EV CHARGING STATION =====
+21:00  Electricity is EXPENSIVE (Rs 10 per unit)
+Chargers in use 0 of 2   Green LED OFF   Red LED ON
+
+Car  Plug       Doing     Battery  This hour  Goal
+V1   PLUGGED    SELLING      60%        -6%   80%
+V2   PLUGGED    WAITING      60%       +10%   90%
+V3   PLUGGED    WAITING      30%        +0%   80%
+
+Saved so far: Rs 40
+
+Last plug event:
+  V1  none yet
+  V2  PLUGGED IN at 21:00 - joins next slot
+  V3  PLUGGED IN at 20:00 - joins next slot
+@{"type":"slot","phase":"night","wait":5000,"slot":4,"hour":22,"peak":1,"price":10.0,"smart":10.0,"peakOnly":50.0,"green":1,"red":0,"ev":[{"name":"V1","plugged":1,"mode":"IDLE","soc":60,"change":0,"target":80,"reserve":60,"depart":12,"changes":2,"note":""},{"name":"V2","plugged":1,"mode":"CHARGE","soc":70,"change":10,"target":90,"reserve":60,"depart":7,"changes":3,"note":"urgent"},{"name":"V3","plugged":1,"mode":"IDLE","soc":30,"change":0,"target":80,"reserve":60,"depart":12,"changes":0,"note":""}]}
+\x1b[2J\x1b[3J\x1b[H===== EV CHARGING STATION =====
+22:00  Electricity is EXPENSIVE (Rs 10 per unit)
+Chargers in use 1 of 2   Green LED ON   Red LED OFF
+
+Car  Plug       Doing     Battery  This hour  Goal
+V1   PLUGGED    WAITING      60%        +0%   80%
+V2   PLUGGED    CHARGING     70%       +10%   90%
+V3   PLUGGED    WAITING      30%        +0%   80%
+
+Saved so far: Rs 40
+
+Last plug event:
+  V1  none yet
+  V2  PLUGGED IN at 21:00 - joins next slot
+  V3  PLUGGED IN at 20:00 - joins next slot
+@{"type":"slot","phase":"night","wait":5000,"slot":5,"hour":23,"peak":0,"price":4.0,"smart":18.0,"peakOnly":70.0,"green":1,"red":0,"ev":[{"name":"V1","plugged":1,"mode":"IDLE","soc":60,"change":0,"target":80,"reserve":60,"depart":12,"changes":2,"note":"deferred: grid limit"},{"name":"V2","plugged":1,"mode":"CHARGE","soc":80,"change":10,"target":90,"reserve":60,"depart":7,"changes":3,"note":"urgent"},{"name":"V3","plugged":1,"mode":"CHARGE","soc":40,"change":10,"target":80,"reserve":60,"depart":12,"changes":1,"note":""}]}
+\x1b[2J\x1b[3J\x1b[H===== EV CHARGING STATION =====
+23:00  Electricity is CHEAP (Rs 4 per unit)
+Chargers in use 2 of 2   Green LED ON   Red LED OFF
+
+Car  Plug       Doing     Battery  This hour  Goal
+V1   PLUGGED    WAITING      60%        +0%   80%
+V2   PLUGGED    CHARGING     80%       +10%   90%
+V3   PLUGGED    CHARGING     40%       +10%   80%
+
+Saved so far: Rs 52
+
+Last plug event:
+  V1  none yet
+  V2  PLUGGED IN at 21:00 - joins next slot
+  V3  PLUGGED IN at 20:00 - joins next slot
+@{"type":"slot","phase":"night","wait":5000,"slot":6,"hour":0,"peak":0,"price":4.0,"smart":26.0,"peakOnly":90.0,"green":1,"red":0,"ev":[{"name":"V1","plugged":1,"mode":"IDLE","soc":60,"change":0,"target":80,"reserve":60,"depart":12,"changes":2,"note":"deferred: grid limit"},{"name":"V2","plugged":1,"mode":"CHARGE","soc":90,"change":10,"target":90,"reserve":60,"depart":7,"changes":3,"note":"urgent"},{"name":"V3","plugged":1,"mode":"CHARGE","soc":50,"change":10,"target":80,"reserve":60,"depart":12,"changes":1,"note":""}]}
+\x1b[2J\x1b[3J\x1b[H===== EV CHARGING STATION =====
+00:00  Electricity is CHEAP (Rs 4 per unit)
+Chargers in use 2 of 2   Green LED ON   Red LED OFF
+
+Car  Plug       Doing     Battery  This hour  Goal
+V1   PLUGGED    WAITING      60%        +0%   80%
+V2   PLUGGED    CHARGING     90%       +10%   90%
+V3   PLUGGED    CHARGING     50%       +10%   80%
+
+Saved so far: Rs 64
+
+Last plug event:
+  V1  none yet
+  V2  PLUGGED IN at 21:00 - joins next slot
+  V3  PLUGGED IN at 20:00 - joins next slot
+@{"type":"slot","phase":"night","wait":5000,"slot":7,"hour":1,"peak":0,"price":4.0,"smart":34.0,"peakOnly":110.0,"green":1,"red":0,"ev":[{"name":"V1","plugged":1,"mode":"CHARGE","soc":70,"change":10,"target":80,"reserve":60,"depart":12,"changes":3,"note":""},{"name":"V2","plugged":1,"mode":"IDLE","soc":90,"change":0,"target":90,"reserve":60,"depart":7,"changes":4,"note":"departed"},{"name":"V3","plugged":1,"mode":"CHARGE","soc":60,"change":10,"target":80,"reserve":60,"depart":12,"changes":1,"note":""}]}
+\x1b[2J\x1b[3J\x1b[H===== EV CHARGING STATION =====
+01:00  Electricity is CHEAP (Rs 4 per unit)
+Chargers in use 2 of 2   Green LED ON   Red LED OFF
+
+Car  Plug       Doing     Battery  This hour  Goal
+V1   PLUGGED    CHARGING     70%       +10%   80%
+V2   PLUGGED    LEFT         90%        +0%   90%
+V3   PLUGGED    CHARGING     60%       +10%   80%
+
+Saved so far: Rs 76
+
+Last plug event:
+  V1  none yet
+  V2  PLUGGED IN at 21:00 - joins next slot
+  V3  PLUGGED IN at 20:00 - joins next slot
+@{"type":"slot","phase":"night","wait":5000,"slot":8,"hour":2,"peak":0,"price":4.0,"smart":42.0,"peakOnly":130.0,"green":1,"red":0,"ev":[{"name":"V1","plugged":1,"mode":"CHARGE","soc":80,"change":10,"target":80,"reserve":60,"depart":12,"changes":3,"note":""},{"name":"V2","plugged":1,"mode":"IDLE","soc":90,"change":0,"target":90,"reserve":60,"depart":7,"changes":4,"note":"departed"},{"name":"V3","plugged":1,"mode":"CHARGE","soc":70,"change":10,"target":80,"reserve":60,"depart":12,"changes":1,"note":""}]}
+\x1b[2J\x1b[3J\x1b[H===== EV CHARGING STATION =====
+02:00  Electricity is CHEAP (Rs 4 per unit)
+Chargers in use 2 of 2   Green LED ON   Red LED OFF
+
+Car  Plug       Doing     Battery  This hour  Goal
+V1   PLUGGED    CHARGING     80%       +10%   80%
+V2   PLUGGED    LEFT         90%        +0%   90%
+V3   PLUGGED    CHARGING     70%       +10%   80%
+
+Saved so far: Rs 88
+
+Last plug event:
+  V1  none yet
+  V2  PLUGGED IN at 21:00 - joins next slot
+  V3  PLUGGED IN at 20:00 - joins next slot
+@{"type":"slot","phase":"night","wait":5000,"slot":9,"hour":3,"peak":0,"price":4.0,"smart":46.0,"peakOnly":140.0,"green":1,"red":0,"ev":[{"name":"V1","plugged":1,"mode":"IDLE","soc":80,"change":0,"target":80,"reserve":60,"depart":12,"changes":4,"note":""},{"name":"V2","plugged":1,"mode":"IDLE","soc":90,"change":0,"target":90,"reserve":60,"depart":7,"changes":4,"note":"departed"},{"name":"V3","plugged":1,"mode":"CHARGE","soc":80,"change":10,"target":80,"reserve":60,"depart":12,"changes":1,"note":""}]}
+\x1b[2J\x1b[3J\x1b[H===== EV CHARGING STATION =====
+03:00  Electricity is CHEAP (Rs 4 per unit)
+Chargers in use 1 of 2   Green LED ON   Red LED OFF
+
+Car  Plug       Doing     Battery  This hour  Goal
+V1   PLUGGED    WAITING      80%        +0%   80%
+V2   PLUGGED    LEFT         90%        +0%   90%
+V3   PLUGGED    CHARGING     80%       +10%   80%
+
+Saved so far: Rs 94
+
+Last plug event:
+  V1  none yet
+  V2  PLUGGED IN at 21:00 - joins next slot
+  V3  PLUGGED IN at 20:00 - joins next slot
+@{"type":"slot","phase":"night","wait":5000,"slot":10,"hour":4,"peak":0,"price":4.0,"smart":46.0,"peakOnly":140.0,"green":0,"red":0,"ev":[{"name":"V1","plugged":1,"mode":"IDLE","soc":80,"change":0,"target":80,"reserve":60,"depart":12,"changes":4,"note":""},{"name":"V2","plugged":1,"mode":"IDLE","soc":90,"change":0,"target":90,"reserve":60,"depart":7,"changes":4,"note":"departed"},{"name":"V3","plugged":1,"mode":"IDLE","soc":80,"change":0,"target":80,"reserve":60,"depart":12,"changes":2,"note":""}]}
+\x1b[2J\x1b[3J\x1b[H===== EV CHARGING STATION =====
+04:00  Electricity is CHEAP (Rs 4 per unit)
+Chargers in use 0 of 2   Green LED OFF   Red LED OFF
+
+Car  Plug       Doing     Battery  This hour  Goal
+V1   PLUGGED    WAITING      80%        +0%   80%
+V2   PLUGGED    LEFT         90%        +0%   90%
+V3   PLUGGED    WAITING      80%        +0%   80%
+
+Saved so far: Rs 94
+
+Last plug event:
+  V1  none yet
+  V2  PLUGGED IN at 21:00 - joins next slot
+  V3  PLUGGED IN at 20:00 - joins next slot
+@{"type":"slot","phase":"night","wait":5000,"slot":11,"hour":5,"peak":0,"price":4.0,"smart":46.0,"peakOnly":140.0,"green":0,"red":0,"ev":[{"name":"V1","plugged":1,"mode":"IDLE","soc":80,"change":0,"target":80,"reserve":60,"depart":12,"changes":4,"note":""},{"name":"V2","plugged":1,"mode":"IDLE","soc":90,"change":0,"target":90,"reserve":60,"depart":7,"changes":4,"note":"departed"},{"name":"V3","plugged":1,"mode":"IDLE","soc":80,"change":0,"target":80,"reserve":60,"depart":12,"changes":2,"note":""}]}
+\x1b[2J\x1b[3J\x1b[H===== EV CHARGING STATION =====
+05:00  Electricity is CHEAP (Rs 4 per unit)
+Chargers in use 0 of 2   Green LED OFF   Red LED OFF
+
+Car  Plug       Doing     Battery  This hour  Goal
+V1   PLUGGED    WAITING      80%        +0%   80%
+V2   PLUGGED    LEFT         90%        +0%   90%
+V3   PLUGGED    WAITING      80%        +0%   80%
+
+Saved so far: Rs 94
+
+Last plug event:
+  V1  none yet
+  V2  PLUGGED IN at 21:00 - joins next slot
+  V3  PLUGGED IN at 20:00 - joins next slot
+@{"type":"summary","phase":"morning","wait":12000,"slot":11,"hour":5,"peak":0,"price":4.0,"smart":46.0,"peakOnly":140.0,"green":0,"red":0,"ev":[{"name":"V1","plugged":1,"mode":"IDLE","soc":80,"change":0,"target":80,"reserve":60,"depart":12,"changes":4,"note":""},{"name":"V2","plugged":1,"mode":"IDLE","soc":90,"change":0,"target":90,"reserve":60,"depart":7,"changes":4,"note":"departed"},{"name":"V3","plugged":1,"mode":"IDLE","soc":80,"change":0,"target":80,"reserve":60,"depart":12,"changes":2,"note":""}]}
+\x1b[2J\x1b[3J\x1b[H===== EV CHARGING STATION =====
+MORNING  Night over. Next: a new evening, batteries start again.
+Chargers in use 0 of 2   Green LED OFF   Red LED OFF
+
+Car  Plug       Doing     Battery  This hour  Goal
+V1   PLUGGED    WAITING      80%        +0%   80%
+V2   PLUGGED    LEFT         90%        +0%   90%
+V3   PLUGGED    WAITING      80%        +0%   80%
+
+Saved so far: Rs 94
+
+Last plug event:
+  V1  none yet
+  V2  PLUGGED IN at 21:00 - joins next slot
+  V3  PLUGGED IN at 20:00 - joins next slot
+
+Last completed cycle:
+  V1  SoC  80% (target 80%, met)  mode changes: 4
+  V2  SoC  90% (target 90%, met)  mode changes: 4
+  V3  SoC  80% (target 80%, met)  mode changes: 2
+  Smart Rs 46.0   Peak-only Rs 140.0   Saved Rs 94.0
+@{"type":"arrive","phase":"arrive","wait":6000,"slot":0,"hour":18,"peak":1,"price":10.0,"smart":0.0,"peakOnly":0.0,"green":0,"red":0,"ev":[{"name":"V1","plugged":1,"mode":"IDLE","soc":90,"change":0,"target":80,"reserve":60,"depart":12,"changes":0,"note":""},{"name":"V2","plugged":1,"mode":"IDLE","soc":20,"change":0,"target":90,"reserve":60,"depart":7,"changes":0,"note":""},{"name":"V3","plugged":1,"mode":"IDLE","soc":30,"change":0,"target":80,"reserve":60,"depart":12,"changes":0,"note":""}]}
+\x1b[2J\x1b[3J\x1b[H===== EV CHARGING STATION =====
+18:00  Cars have arrived. These are their starting batteries.
+Chargers in use 0 of 2   Green LED OFF   Red LED OFF
+
+Car  Plug       Doing     Battery  This hour  Goal
+V1   PLUGGED    WAITING      90%        +0%   80%
+V2   PLUGGED    WAITING      20%        +0%   90%
+V3   PLUGGED    WAITING      30%        +0%   80%
+
+Last plug event:
+  V1  none yet
+  V2  PLUGGED IN at 21:00 - joins next slot
+  V3  PLUGGED IN at 20:00 - joins next slot
+
+Last completed cycle:
+  V1  SoC  80% (target 80%, met)  mode changes: 4
+  V2  SoC  90% (target 90%, met)  mode changes: 4
+  V3  SoC  80% (target 80%, met)  mode changes: 2
+  Smart Rs 46.0   Peak-only Rs 140.0   Saved Rs 94.0
+`.trim().split('\n');
+
+function playDemo() {
+  if (port) { $('status').textContent = 'Disconnect the NodeMCU first'; return; }
+  if (demoTimer) { stopDemo(); $('status').textContent = 'Demo stopped'; return; }
+  reset();
+  $('status').textContent = 'Recorded demo, not live';
+  $('demo').textContent = 'Stop demo';
+  let i = 0;
+  (function step() {
+    let line;
+    do { line = DEMO[i++]; handleLine(line || ''); } while (i < DEMO.length && !(line || '').startsWith('@'));
+    if (i >= DEMO.length) { stopDemo(); $('status').textContent = 'Recorded demo finished'; return; }
+    const snap = JSON.parse(line.slice(1));
+    const plugged = snap.type === 'plug' || snap.type === 'unplug';
+    demoTimer = setTimeout(step, plugged ? 2000 : snap.wait);
+  })();
+}
+
+$('connect').onclick = connect;
+$('demo').onclick = playDemo;
+</script>
+</body>
+</html>
